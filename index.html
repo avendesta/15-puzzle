@@ -168,14 +168,16 @@
     }
 
     .grid {
-      display: grid;
-      grid-template-columns: repeat(4, var(--tile-size));
-      grid-template-rows: repeat(4, var(--tile-size));
-      gap: var(--gap);
+      position: relative;
+      width: calc(var(--tile-size) * 4 + var(--gap) * 3);
+      height: calc(var(--tile-size) * 4 + var(--gap) * 3);
     }
 
     /* Tiles */
     .tile {
+      position: absolute;
+      width: var(--tile-size);
+      height: var(--tile-size);
       background: var(--tile);
       border: 1px solid var(--tile-border);
       border-radius: var(--radius);
@@ -188,22 +190,19 @@
       letter-spacing: 0.04em;
       cursor: pointer;
       user-select: none;
-      position: relative;
-      transition: background 0.12s, transform 0.1s, box-shadow 0.12s;
-      /* Top highlight */
+      transition: top 0.15s ease, left 0.15s ease, background 0.12s, box-shadow 0.12s;
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
     }
 
     .tile:hover {
       background: var(--tile-hover);
-      transform: scale(0.96);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.08),
         0 4px 16px rgba(0,0,0,0.4);
     }
 
     .tile:active {
-      transform: scale(0.92);
+      transition: top 0.08s ease, left 0.08s ease;
     }
 
     /* Accent tile (15) */
@@ -231,6 +230,21 @@
     .tile.empty:hover {
       transform: none;
       background: var(--empty);
+    }
+
+    /* Tiles adjacent to empty space */
+    .tile.movable {
+      border-color: #3a3a50;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.08),
+        0 0 0 1px #2e2e4a;
+    }
+
+    .tile.movable:hover {
+      border-color: #5a5a80;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.1),
+        0 0 12px rgba(100,100,200,0.15);
     }
 
     /* Tiny position number in corner */
@@ -414,23 +428,7 @@
 
   <div class="grid-wrap">
     <div class="grid" id="grid">
-      <!-- Solved state for visual preview -->
-      <div class="tile" data-n="1">1</div>
-      <div class="tile" data-n="2">2</div>
-      <div class="tile" data-n="3">3</div>
-      <div class="tile" data-n="4">4</div>
-      <div class="tile" data-n="5">5</div>
-      <div class="tile" data-n="6">6</div>
-      <div class="tile" data-n="7">7</div>
-      <div class="tile" data-n="8">8</div>
-      <div class="tile" data-n="9">9</div>
-      <div class="tile" data-n="10">10</div>
-      <div class="tile" data-n="11">11</div>
-      <div class="tile" data-n="12">12</div>
-      <div class="tile" data-n="13">13</div>
-      <div class="tile" data-n="14">14</div>
-      <div class="tile" data-n="15">15</div>
-      <div class="tile empty" data-n="0"></div>
+      <!-- Tiles are created and positioned by JavaScript -->
     </div>
   </div>
 
@@ -449,9 +447,337 @@
     <div class="emoji">🎉</div>
     <div class="win-title">Solved!</div>
     <div class="win-subtitle">Moves: <span id="win-moves">—</span> &nbsp;·&nbsp; Time: <span id="win-time">—</span></div>
-    <button class="btn-primary" style="width:100%;max-width:200px" onclick="document.getElementById('win-overlay').classList.remove('show')">Play Again</button>
+    <button class="btn-primary" style="width:100%;max-width:200px" id="btn-play-again">Play Again</button>
   </div>
 </div>
+
+<script>
+  // ─── State ───────────────────────────────────────────────────────────────────
+  const SOLVED = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,0];
+  let board = [];       // current tile arrangement, 0 = empty
+  let moves = 0;
+  let seconds = 0;
+  let timerInterval = null;
+  let gameStarted = false;
+  let bestMoves = parseInt(localStorage.getItem('puzzle15_best') || '0');
+
+  // ─── DOM refs ─────────────────────────────────────────────────────────────────
+  const gridEl      = document.getElementById('grid');
+  const movesEl     = document.getElementById('moves');
+  const timerEl     = document.getElementById('timer');
+  const bestEl      = document.querySelector('.best-score .value');
+  const winOverlay  = document.getElementById('win-overlay');
+  const winMovesEl  = document.getElementById('win-moves');
+  const winTimeEl   = document.getElementById('win-time');
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+  /** Count inversions in the board (ignoring the empty tile) */
+  function countInversions(tiles) {
+    const arr = tiles.filter(n => n !== 0);
+    let inv = 0;
+    for (let i = 0; i < arr.length; i++)
+      for (let j = i + 1; j < arr.length; j++)
+        if (arr[i] > arr[j]) inv++;
+    return inv;
+  }
+
+  /** Row of the empty tile from the bottom (1-indexed) */
+  function emptyRowFromBottom(tiles) {
+    const idx = tiles.indexOf(0);
+    return 4 - Math.floor(idx / 4); // 4x4 grid
+  }
+
+  /** A 4×4 puzzle is solvable when:
+   *  - Grid width is even (4):
+   *    - inversions even  → empty on odd row from bottom  → solvable
+   *    - inversions odd   → empty on even row from bottom → solvable
+   */
+  function isSolvable(tiles) {
+    const inv = countInversions(tiles);
+    const row = emptyRowFromBottom(tiles);
+    return (inv % 2 === 0) ? (row % 2 === 1) : (row % 2 === 0);
+  }
+
+  /** Fisher-Yates shuffle */
+  function shuffleArray(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  /** Generate a random, solvable board */
+  function generateBoard() {
+    let tiles;
+    do { tiles = shuffleArray(SOLVED); }
+    while (!isSolvable(tiles) || isWon(tiles));
+    return tiles;
+  }
+
+  function isWon(tiles) {
+    return tiles.every((v, i) => v === SOLVED[i]);
+  }
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  // ─── Timer ────────────────────────────────────────────────────────────────────
+
+  function startTimer() {
+    stopTimer();
+    seconds = 0;
+    timerEl.textContent = '0:00';
+    timerInterval = setInterval(() => {
+      seconds++;
+      timerEl.textContent = formatTime(seconds);
+    }, 1000);
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  // ─── Rendering ────────────────────────────────────────────────────────────────
+
+  // tileEls[n] = the DOM element for tile number n (1–15), plus tileEls[0] for empty
+  const tileEls = {};
+
+  /** Compute pixel position for a board index */
+  function posForIdx(idx) {
+    // Read computed tile size and gap from CSS variables
+    const style = getComputedStyle(document.documentElement);
+    const size  = parseFloat(style.getPropertyValue('--tile-size')) ||
+                  gridEl.offsetWidth / 4; // fallback
+    const gap   = parseFloat(style.getPropertyValue('--gap')) || 6;
+    const col   = idx % 4;
+    const row   = Math.floor(idx / 4);
+    return { top: row * (size + gap), left: col * (size + gap) };
+  }
+
+  /** Build tile DOM elements once, then reuse forever */
+  function createTiles() {
+    gridEl.innerHTML = '';
+    // Create empty slot
+    const empty = document.createElement('div');
+    empty.className = 'tile empty';
+    empty.dataset.n = 0;
+    gridEl.appendChild(empty);
+    tileEls[0] = empty;
+
+    // Create numbered tiles
+    for (let n = 1; n <= 15; n++) {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.dataset.n = n;
+      tile.textContent = n;
+      tile.addEventListener('click', () => {
+        const boardIdx = board.indexOf(n);
+        handleTileClick(boardIdx);
+      });
+      gridEl.appendChild(tile);
+      tileEls[n] = tile;
+    }
+  }
+
+  /** Move each tile's DOM element to its current board position */
+  function positionTiles() {
+    board.forEach((n, idx) => {
+      const el = tileEls[n];
+      const { top, left } = posForIdx(idx);
+      el.style.top  = top  + 'px';
+      el.style.left = left + 'px';
+    });
+  }
+
+  function updateStats() {
+    movesEl.textContent = moves;
+    bestEl.textContent = bestMoves > 0 ? bestMoves : '—';
+  }
+
+  // ─── Move logic ───────────────────────────────────────────────────────────────
+
+  /**
+   * Returns all board indices that can be clicked — i.e. any tile that shares
+   * a row or column with the empty space (not just immediate neighbours).
+   */
+  function getMovableTiles(tiles) {
+    const emptyIdx = tiles.indexOf(0);
+    const emptyRow = Math.floor(emptyIdx / 4);
+    const emptyCol = emptyIdx % 4;
+    const reachable = [];
+    for (let i = 0; i < 16; i++) {
+      if (i === emptyIdx) continue;
+      const row = Math.floor(i / 4);
+      const col = i % 4;
+      if (row === emptyRow || col === emptyCol) reachable.push(i);
+    }
+    return reachable;
+  }
+
+  /**
+   * Given a clicked index, return the ordered list of board indices that need
+   * to slide — from the tile nearest the empty space up to the clicked tile.
+   */
+  function getTilesInLine(clickedIdx) {
+    const emptyIdx = board.indexOf(0);
+    const emptyRow = Math.floor(emptyIdx / 4);
+    const emptyCol = emptyIdx % 4;
+    const clickRow = Math.floor(clickedIdx / 4);
+    const clickCol = clickedIdx % 4;
+
+    const toSlide = [];
+
+    if (clickRow === emptyRow) {
+      // Same row — slide horizontally
+      const dir = clickCol > emptyCol ? 1 : -1;
+      for (let c = emptyCol + dir; dir > 0 ? c <= clickCol : c >= clickCol; c += dir) {
+        toSlide.push(emptyRow * 4 + c);
+      }
+    } else if (clickCol === emptyCol) {
+      // Same col — slide vertically
+      const dir = clickRow > emptyRow ? 1 : -1;
+      for (let r = emptyRow + dir; dir > 0 ? r <= clickRow : r >= clickRow; r += dir) {
+        toSlide.push(r * 4 + clickCol);
+      }
+    }
+
+    return toSlide; // ordered: nearest-to-empty → clicked tile
+  }
+
+  function handleTileClick(idx) {
+    const movable = getMovableTiles(board);
+    if (!movable.includes(idx)) return;
+
+    if (!gameStarted) {
+      gameStarted = true;
+      startTimer();
+    }
+
+    // Get all tiles that need to move, in order from empty outward
+    const toSlide = getTilesInLine(idx);
+
+    // Shift them all in the board state: walk from empty toward clicked tile
+    const emptyIdx = board.indexOf(0);
+    // Slide each tile one step toward the empty space (chain shift)
+    let currentEmpty = emptyIdx;
+    for (const tileIdx of toSlide) {
+      board[currentEmpty] = board[tileIdx];
+      board[tileIdx] = 0;
+      currentEmpty = tileIdx;
+    }
+
+    moves++;
+    updateStats();
+    positionTiles();
+    highlightMovable();
+
+    if (isWon(board)) onWin();
+  }
+
+  /** Highlight all tiles in the same row or column as the empty space */
+  function highlightMovable() {
+    const movableIdxs = getMovableTiles(board);
+    const movableNums = movableIdxs.map(i => board[i]).filter(n => n !== 0);
+    for (let n = 1; n <= 15; n++) {
+      tileEls[n].classList.toggle('movable', movableNums.includes(n));
+    }
+  }
+
+  /** Full re-render (used for new game / solve) — no animation */
+  function render(animate = false) {
+    if (!animate) {
+      // Suppress transitions briefly so tiles snap into place
+      Object.values(tileEls).forEach(el => el.style.transition = 'none');
+      positionTiles();
+      // Re-enable transitions next frame
+      requestAnimationFrame(() => {
+        Object.values(tileEls).forEach(el => el.style.transition = '');
+      });
+    } else {
+      positionTiles();
+    }
+    highlightMovable();
+  }
+
+  // ─── Win ──────────────────────────────────────────────────────────────────────
+
+  function onWin() {
+    stopTimer();
+    // Update best score (fewest moves wins)
+    if (bestMoves === 0 || moves < bestMoves) {
+      bestMoves = moves;
+      localStorage.setItem('puzzle15_best', bestMoves);
+    }
+    updateStats();
+    winMovesEl.textContent = moves;
+    winTimeEl.textContent = formatTime(seconds);
+    setTimeout(() => winOverlay.classList.add('show'), 400);
+  }
+
+  // ─── New game ─────────────────────────────────────────────────────────────────
+
+  function newGame() {
+    stopTimer();
+    gameStarted = false;
+    moves = 0;
+    seconds = 0;
+    timerEl.textContent = '0:00';
+    board = generateBoard();
+    updateStats();
+    render(false);
+    winOverlay.classList.remove('show');
+  }
+
+  // ─── Solve button (resets to solved state) ────────────────────────────────────
+
+  function solveGame() {
+    stopTimer();
+    gameStarted = false;
+    moves = 0;
+    seconds = 0;
+    timerEl.textContent = '0:00';
+    board = [...SOLVED];
+    updateStats();
+    render(false);
+    winOverlay.classList.remove('show');
+  }
+
+  // ─── Keyboard support ─────────────────────────────────────────────────────────
+
+  document.addEventListener('keydown', (e) => {
+    const emptyIdx = board.indexOf(0);
+    const row = Math.floor(emptyIdx / 4);
+    const col = emptyIdx % 4;
+    let target = -1;
+    if (e.key === 'ArrowUp'    && row < 3) target = emptyIdx + 4;
+    if (e.key === 'ArrowDown'  && row > 0) target = emptyIdx - 4;
+    if (e.key === 'ArrowLeft'  && col < 3) target = emptyIdx + 1;
+    if (e.key === 'ArrowRight' && col > 0) target = emptyIdx - 1;
+    if (target !== -1) {
+      e.preventDefault();
+      handleTileClick(target);
+    }
+  });
+
+  // ─── Button bindings ──────────────────────────────────────────────────────────
+
+  document.getElementById('btn-new').addEventListener('click', newGame);
+  document.getElementById('btn-solve').addEventListener('click', solveGame);
+  document.getElementById('btn-play-again').addEventListener('click', newGame);
+
+  // ─── Boot ─────────────────────────────────────────────────────────────────────
+
+  createTiles();
+  updateStats();
+  newGame();
+</script>
 
 </body>
 </html>

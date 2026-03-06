@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>15 Puzzle</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0e10;
+      --surface: #18181c;
+      --grid-bg: #101013;
+      --tile: #1f1f26;
+      --tile-hover: #2a2a35;
+      --tile-border: #2e2e3a;
+      --accent: #e8ff47;
+      --accent2: #ff6b35;
+      --text: #f0f0f0;
+      --muted: #555568;
+      --empty: #13131a;
+      --gap: 6px;
+      --tile-size: clamp(64px, 16vw, 90px);
+      --radius: 8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      padding: 24px;
+    }
+
+    /* Subtle noise texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      background-size: 200px;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.5;
+    }
+
+    .wrapper {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+      max-width: 480px;
+      width: 100%;
+    }
+
+    /* Header */
+    header {
+      width: 100%;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .title-block {
+      display: flex;
+      flex-direction: column;
+      line-height: 1;
+    }
+
+    .title-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(52px, 13vw, 72px);
+      color: var(--text);
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+
+    h1 span {
+      color: var(--accent);
+    }
+
+    .best-score {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      padding-bottom: 6px;
+    }
+
+    .best-score .label {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .best-score .value {
+      font-size: 22px;
+      color: var(--accent);
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 0.05em;
+    }
+
+    /* Stats bar */
+    .stats {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--tile-border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stat-card .label {
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .stat-card .value {
+      font-size: 28px;
+      font-family: 'Bebas Neue', sans-serif;
+      color: var(--text);
+      letter-spacing: 0.04em;
+      line-height: 1;
+    }
+
+    .stat-card.highlight .value {
+      color: var(--accent2);
+    }
+
+    /* Grid container */
+    .grid-wrap {
+      background: var(--grid-bg);
+      border: 1px solid var(--tile-border);
+      border-radius: 12px;
+      padding: var(--gap);
+      box-shadow:
+        0 0 0 1px #ffffff04,
+        0 24px 60px rgba(0,0,0,0.6);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, var(--tile-size));
+      grid-template-rows: repeat(4, var(--tile-size));
+      gap: var(--gap);
+    }
+
+    /* Tiles */
+    .tile {
+      background: var(--tile);
+      border: 1px solid var(--tile-border);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(22px, 5vw, 32px);
+      color: var(--text);
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      transition: background 0.12s, transform 0.1s, box-shadow 0.12s;
+      /* Top highlight */
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+
+    .tile:hover {
+      background: var(--tile-hover);
+      transform: scale(0.96);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.08),
+        0 4px 16px rgba(0,0,0,0.4);
+    }
+
+    .tile:active {
+      transform: scale(0.92);
+    }
+
+    /* Accent tile (15) */
+    .tile[data-n="15"] {
+      background: linear-gradient(135deg, #2a2a18 0%, #1e1e10 100%);
+      border-color: #3d3d20;
+      color: var(--accent);
+    }
+
+    /* Corner tiles get slight accent */
+    .tile[data-n="1"],
+    .tile[data-n="4"],
+    .tile[data-n="13"] {
+      border-color: #2a2a38;
+    }
+
+    /* Empty tile */
+    .tile.empty {
+      background: var(--empty);
+      border: 1px dashed #1e1e28;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .tile.empty:hover {
+      transform: none;
+      background: var(--empty);
+    }
+
+    /* Tiny position number in corner */
+    .tile:not(.empty)::after {
+      content: attr(data-n);
+      position: absolute;
+      bottom: 5px;
+      right: 7px;
+      font-family: 'DM Mono', monospace;
+      font-size: 8px;
+      color: var(--muted);
+      opacity: 0.5;
+    }
+
+    /* Controls */
+    .controls {
+      width: 100%;
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      flex: 1;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      border: 1px solid var(--tile-border);
+      border-radius: var(--radius);
+      padding: 13px 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #0e0e10;
+      border-color: var(--accent);
+      font-weight: 500;
+    }
+
+    .btn-primary:hover {
+      background: #f5ff70;
+      box-shadow: 0 0 20px rgba(232,255,71,0.25);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .btn-secondary:hover {
+      background: var(--surface);
+      color: var(--text);
+      border-color: #3a3a4a;
+    }
+
+    /* Footer */
+    footer {
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+      opacity: 0.5;
+    }
+
+    /* Win overlay (hidden by default) */
+    .win-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(10,10,12,0.85);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      backdrop-filter: blur(6px);
+    }
+
+    .win-overlay.show { display: flex; }
+
+    .win-card {
+      background: var(--surface);
+      border: 1px solid #3a3a20;
+      border-radius: 16px;
+      padding: 40px 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 0 60px rgba(232,255,71,0.08);
+    }
+
+    .win-card .emoji { font-size: 48px; }
+
+    .win-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 56px;
+      color: var(--accent);
+      letter-spacing: 0.06em;
+      line-height: 1;
+    }
+
+    .win-subtitle {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    /* Entrance animation */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .wrapper > * {
+      animation: fadeUp 0.4s ease both;
+    }
+
+    .wrapper > *:nth-child(1) { animation-delay: 0.05s; }
+    .wrapper > *:nth-child(2) { animation-delay: 0.12s; }
+    .wrapper > *:nth-child(3) { animation-delay: 0.18s; }
+    .wrapper > *:nth-child(4) { animation-delay: 0.22s; }
+    .wrapper > *:nth-child(5) { animation-delay: 0.26s; }
+
+    .tile {
+      animation: fadeUp 0.35s ease both;
+    }
+
+    /* stagger tiles */
+    .tile:nth-child(1)  { animation-delay: 0.20s; }
+    .tile:nth-child(2)  { animation-delay: 0.22s; }
+    .tile:nth-child(3)  { animation-delay: 0.24s; }
+    .tile:nth-child(4)  { animation-delay: 0.26s; }
+    .tile:nth-child(5)  { animation-delay: 0.28s; }
+    .tile:nth-child(6)  { animation-delay: 0.30s; }
+    .tile:nth-child(7)  { animation-delay: 0.32s; }
+    .tile:nth-child(8)  { animation-delay: 0.34s; }
+    .tile:nth-child(9)  { animation-delay: 0.36s; }
+    .tile:nth-child(10) { animation-delay: 0.38s; }
+    .tile:nth-child(11) { animation-delay: 0.40s; }
+    .tile:nth-child(12) { animation-delay: 0.42s; }
+    .tile:nth-child(13) { animation-delay: 0.44s; }
+    .tile:nth-child(14) { animation-delay: 0.46s; }
+    .tile:nth-child(15) { animation-delay: 0.48s; }
+    .tile:nth-child(16) { animation-delay: 0.50s; }
+
+    @media (max-width: 400px) {
+      :root { --tile-size: 72px; --gap: 5px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrapper">
+
+  <header>
+    <div class="title-block">
+      <span class="title-label">Classic Tile Puzzle</span>
+      <h1>THE <span>15</span></h1>
+    </div>
+    <div class="best-score">
+      <span class="label">Best</span>
+      <span class="value">—</span>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat-card">
+      <span class="label">Moves</span>
+      <span class="value" id="moves">0</span>
+    </div>
+    <div class="stat-card highlight">
+      <span class="label">Time</span>
+      <span class="value" id="timer">0:00</span>
+    </div>
+  </div>
+
+  <div class="grid-wrap">
+    <div class="grid" id="grid">
+      <!-- Solved state for visual preview -->
+      <div class="tile" data-n="1">1</div>
+      <div class="tile" data-n="2">2</div>
+      <div class="tile" data-n="3">3</div>
+      <div class="tile" data-n="4">4</div>
+      <div class="tile" data-n="5">5</div>
+      <div class="tile" data-n="6">6</div>
+      <div class="tile" data-n="7">7</div>
+      <div class="tile" data-n="8">8</div>
+      <div class="tile" data-n="9">9</div>
+      <div class="tile" data-n="10">10</div>
+      <div class="tile" data-n="11">11</div>
+      <div class="tile" data-n="12">12</div>
+      <div class="tile" data-n="13">13</div>
+      <div class="tile" data-n="14">14</div>
+      <div class="tile" data-n="15">15</div>
+      <div class="tile empty" data-n="0"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn-primary" id="btn-new">New Game</button>
+    <button class="btn-secondary" id="btn-solve">Solve</button>
+  </div>
+
+  <footer>slide tiles into order · 1 – 15</footer>
+
+</div>
+
+<!-- Win overlay -->
+<div class="win-overlay" id="win-overlay">
+  <div class="win-card">
+    <div class="emoji">🎉</div>
+    <div class="win-title">Solved!</div>
+    <div class="win-subtitle">Moves: <span id="win-moves">—</span> &nbsp;·&nbsp; Time: <span id="win-time">—</span></div>
+    <button class="btn-primary" style="width:100%;max-width:200px" onclick="document.getElementById('win-overlay').classList.remove('show')">Play Again</button>
+  </div>
+</div>
+
+</body>
+</html>

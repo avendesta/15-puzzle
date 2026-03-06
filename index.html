@@ -434,10 +434,9 @@
 
   <div class="controls">
     <button class="btn-primary" id="btn-new">New Game</button>
-    <button class="btn-secondary" id="btn-solve">Solve</button>
   </div>
 
-  <footer>slide tiles into order · 1 – 15</footer>
+  <footer>slide tiles into order · 1 – 15 &nbsp;·&nbsp; by aven desta</footer>
 
 </div>
 
@@ -766,10 +765,88 @@
     }
   });
 
+  // ─── Touch / swipe support ────────────────────────────────────────────────────
+
+  const SWIPE_THRESHOLD = 20; // min px to count as a swipe
+  let touchStartX = null;
+  let touchStartY = null;
+  let touchedTileIdx = null; // board index of the tile that was touched
+
+  gridEl.addEventListener('touchstart', (e) => {
+    const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+
+    // Find which tile was touched
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.tile');
+    if (el && el.dataset.n !== undefined) {
+      const n = parseInt(el.dataset.n);
+      touchedTileIdx = n === 0 ? board.indexOf(0) : board.indexOf(n);
+    } else {
+      touchedTileIdx = null;
+    }
+  }, { passive: true });
+
+  gridEl.addEventListener('touchend', (e) => {
+    if (touchStartX === null || touchedTileIdx === null) return;
+
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartX;
+    const dy = touch.clientY - touchStartY;
+
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    // Must exceed threshold to count as a swipe, otherwise treat as a tap
+    if (absDx < SWIPE_THRESHOLD && absDy < SWIPE_THRESHOLD) {
+      // It's a tap — let the click handler deal with it
+      touchStartX = null;
+      touchStartY = null;
+      touchedTileIdx = null;
+      return;
+    }
+
+    e.preventDefault();
+
+    // Determine swipe direction and which tile should move
+    // The swipe direction indicates the direction the finger moved,
+    // so we move the tile in that direction toward the empty space.
+    const emptyIdx = board.indexOf(0);
+    const emptyRow = Math.floor(emptyIdx / 4);
+    const emptyCol = emptyIdx % 4;
+    const tileRow  = Math.floor(touchedTileIdx / 4);
+    const tileCol  = touchedTileIdx % 4;
+
+    let target = null;
+
+    if (absDx > absDy) {
+      // Horizontal swipe
+      const swipingRight = dx > 0;
+      if (tileRow === emptyRow) {
+        // Same row: swipe right means tile wants to go right → empty must be to the right
+        if (swipingRight && emptyCol > tileCol) target = touchedTileIdx;
+        if (!swipingRight && emptyCol < tileCol) target = touchedTileIdx;
+      }
+    } else {
+      // Vertical swipe
+      const swipingDown = dy > 0;
+      if (tileCol === emptyCol) {
+        // Same col: swipe down means tile wants to go down → empty must be below
+        if (swipingDown && emptyRow > tileRow) target = touchedTileIdx;
+        if (!swipingDown && emptyRow < tileRow) target = touchedTileIdx;
+      }
+    }
+
+    if (target !== null) handleTileClick(target);
+
+    touchStartX = null;
+    touchStartY = null;
+    touchedTileIdx = null;
+  }, { passive: false });
+
   // ─── Button bindings ──────────────────────────────────────────────────────────
 
   document.getElementById('btn-new').addEventListener('click', newGame);
-  document.getElementById('btn-solve').addEventListener('click', solveGame);
   document.getElementById('btn-play-again').addEventListener('click', newGame);
 
   // ─── Boot ─────────────────────────────────────────────────────────────────────

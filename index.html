@@ -4,13 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta name="theme-color" content="#0e0e10"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="15 Puzzle"/>
   <link rel="manifest" href="./manifest.json"/>
   <link rel="apple-touch-icon" href="./icons/icon-192.png"/>
   <title>15 Puzzle</title>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <!-- Preconnect to Google Fonts to avoid render blocking -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'"/>
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap"/></noscript>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -556,27 +562,22 @@
 
   /** Compute pixel position for a board index */
   function posForIdx(idx) {
-    // Read computed tile size and gap from CSS variables
-    const style = getComputedStyle(document.documentElement);
-    const size  = parseFloat(style.getPropertyValue('--tile-size')) ||
-                  gridEl.offsetWidth / 4; // fallback
-    const gap   = parseFloat(style.getPropertyValue('--gap')) || 6;
-    const col   = idx % 4;
-    const row   = Math.floor(idx / 4);
+    const gap  = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gap')) || 6;
+    const size = (gridEl.offsetWidth - gap * 3) / 4;
+    const col  = idx % 4;
+    const row  = Math.floor(idx / 4);
     return { top: row * (size + gap), left: col * (size + gap) };
   }
 
   /** Build tile DOM elements once, then reuse forever */
   function createTiles() {
     gridEl.innerHTML = '';
-    // Create empty slot
     const empty = document.createElement('div');
     empty.className = 'tile empty';
     empty.dataset.n = 0;
     gridEl.appendChild(empty);
     tileEls[0] = empty;
 
-    // Create numbered tiles
     for (let n = 1; n <= 15; n++) {
       const tile = document.createElement('div');
       tile.className = 'tile';
@@ -698,10 +699,8 @@
   /** Full re-render (used for new game / solve) — no animation */
   function render(animate = false) {
     if (!animate) {
-      // Suppress transitions briefly so tiles snap into place
       Object.values(tileEls).forEach(el => el.style.transition = 'none');
       positionTiles();
-      // Re-enable transitions next frame
       requestAnimationFrame(() => {
         Object.values(tileEls).forEach(el => el.style.transition = '');
       });

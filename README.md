@@ -1,4 +1,5 @@
 # The 15 Puzzle
+### [Play the 15 Puzzle online](https://avendesta.github.io/15-puzzle/)
 
 A classic 15-tile sliding puzzle game, playable in the browser. Built as a single `index.html` file and deployed via GitHub Pages.
 
